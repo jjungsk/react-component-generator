@@ -3,6 +3,15 @@ import { PromptInput } from './components/PromptInput';
 import { ComponentCard } from './components/ComponentCard';
 import { Window } from './components/Window';
 import { useComponentGenerator } from './hooks/useComponentGenerator';
+import { usePersistentState } from './hooks/usePersistentState';
+import {
+  addToHistory,
+  parseApiKeys,
+  parseProvider,
+  parseStringArray,
+  DEFAULT_PROVIDER,
+  STORAGE_KEYS,
+} from './utils/persistence';
 import type { Provider } from './types';
 import './App.css';
 
@@ -12,9 +21,23 @@ const PROVIDER_CONFIG = {
 } as const;
 
 function App() {
-  const [apiKey, setApiKey] = useState('');
+  const [apiKeys, setApiKeys] = usePersistentState(
+    STORAGE_KEYS.apiKeys,
+    { anthropic: '', google: '' },
+    parseApiKeys,
+  );
+  const [history, setHistory] = usePersistentState<string[]>(
+    STORAGE_KEYS.history,
+    [],
+    parseStringArray,
+  );
   const [showKey, setShowKey] = useState(false);
-  const [provider, setProvider] = useState<Provider>('google');
+  const [provider, setProvider] = usePersistentState<Provider>(
+    STORAGE_KEYS.provider,
+    DEFAULT_PROVIDER,
+    parseProvider,
+  );
+  const apiKey = apiKeys[provider];
   const [envKeys, setEnvKeys] = useState<Record<Provider, boolean>>({
     anthropic: false,
     google: false,
@@ -36,12 +59,12 @@ function App() {
       alert(`${PROVIDER_CONFIG[provider].label} API 키를 입력하거나 .env에 설정해주세요.`);
       return;
     }
+    setHistory((prev) => addToHistory(prev, prompt));
     generate(prompt, apiKey || undefined, provider);
   };
 
   const handleProviderChange = (newProvider: Provider) => {
     setProvider(newProvider);
-    setApiKey('');
   };
 
   const activeProvider = PROVIDER_CONFIG[provider].label;
@@ -67,7 +90,7 @@ function App() {
 
         <main className="workspace">
           <Window title="무엇을 만들까요?" className="composer-panel">
-            <PromptInput onGenerate={handleGenerate} isLoading={isLoading} />
+            <PromptInput onGenerate={handleGenerate} isLoading={isLoading} history={history} />
           </Window>
 
           <Window title="실행 설정" className="settings-panel">
@@ -92,7 +115,7 @@ function App() {
                   id="api-key"
                   type={showKey ? 'text' : 'password'}
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  onChange={(e) => setApiKeys((prev) => ({ ...prev, [provider]: e.target.value }))}
                   placeholder={
                     hasEnvKey
                       ? '서버 키 사용 중 (직접 입력으로 덮어쓰기 가능)'

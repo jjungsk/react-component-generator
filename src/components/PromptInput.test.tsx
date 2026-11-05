@@ -49,4 +49,19 @@ describe('PromptInput', () => {
     await user.type(screen.getByRole('textbox'), '카드');
     expect(screen.getByText('2/500')).toBeInTheDocument();
   });
+
+  it('히스토리 프롬프트를 보여주고 클릭하면 입력창에 채운다', async () => {
+    const user = userEvent.setup();
+    render(
+      <PromptInput onGenerate={vi.fn()} isLoading={false} history={['로그인 폼', '프로필 카드']} />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '로그인 폼' }));
+    expect(screen.getByRole('textbox')).toHaveValue('로그인 폼');
+  });
+
+  it('히스토리가 없으면 최근 프롬프트 영역을 렌더링하지 않는다', () => {
+    render(<PromptInput onGenerate={vi.fn()} isLoading={false} />);
+    expect(screen.queryByText('최근 프롬프트')).not.toBeInTheDocument();
+  });
 });
