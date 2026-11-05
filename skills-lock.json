@@ -25,6 +25,12 @@
       "skillPath": "autofix/SKILL.md",
       "computedHash": "aa812d5fd399f3bf756e576fd3d4c7975c4bf45cfb3b13c8ad5e37dba049785e"
     },
+    "code-review": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/code-review/SKILL.md",
+      "computedHash": "c2e0695f4d6bb9e1cc0b4c68d9965d062271cff387000fa59c1c2d31a18c25b8"
+    },
     "deep-interview": {
       "source": "devbrother2024/skills",
       "sourceType": "github",
