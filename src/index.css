@@ -1,0 +1,73 @@
+@font-face {
+  font-family: Galmuri11;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../node_modules/galmuri/dist/Galmuri11.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: Galmuri11;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../node_modules/galmuri/dist/Galmuri11-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: GalmuriMono11;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../node_modules/galmuri/dist/GalmuriMono11.woff2') format('woff2');
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeSpeed;
+  --desk: #0055aa;
+  --desk-dither: #004f9e;
+  --paper: #ffffff;
+  --ink: #000000;
+  --orange: #ff8800;
+  --grey: #aaaaaa;
+}
+
+html {
+  background: var(--desk);
+}
+
+body {
+  font-family: Galmuri11, 'Malgun Gothic', ui-monospace, monospace;
+  font-size: 15px;
+  line-height: 1.6;
+  background:
+    repeating-conic-gradient(var(--desk) 0 25%, var(--desk-dither) 0 50%) 0 0 / 4px 4px;
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: var(--orange);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 3px solid var(--orange);
+  outline-offset: 2px;
+}
