@@ -1,5 +1,32 @@
 {
   "worktree": { "baseRef": "head" },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "out=$(bun --bun run test 2>&1) || { echo \"테스트 실패: 모든 테스트가 통과해야 커밋할 수 있습니다.\" >&2; echo \"$out\" | tail -40 >&2; exit 2; }",
+            "timeout": 180,
+            "onFailure": "block",
+            "statusMessage": "커밋 전 테스트 실행 중..."
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/tdd-reminder.ts\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "deny": [
       "Read(./.env)",
