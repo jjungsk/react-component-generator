@@ -1,4 +1,10 @@
-import { stripCodeFences, ensureRenderCall } from './generator';
+import {
+  stripCodeFences,
+  ensureRenderCall,
+  splitSSE,
+  extractAnthropicDelta,
+  extractGeminiDelta,
+} from './generator';
 import { withModelFallback } from './fallback';
 
 // 우선순위 순서. 앞 모델이 실패하면 다음 모델로 폴백한다.
@@ -135,6 +141,100 @@ async function callGoogle(prompt: string, apiKey: string): Promise<string> {
   return withModelFallback(GOOGLE_MODELS, (model) => callGoogleModel(prompt, apiKey, model));
 }
 
+// 업스트림 SSE 응답을 읽어 payload 단위로 내보낸다.
+async function* readSSE(response: Response): AsyncGenerator<string> {
+  if (!response.body) return;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { payloads, rest } = splitSSE(buffer);
+    buffer = rest;
+    for (const payload of payloads) yield payload;
+  }
+  // 마지막 이벤트가 빈 줄로 끝나지 않은 경우를 처리한다.
+  const { payloads } = splitSSE(`${buffer}\n\n`);
+  for (const payload of payloads) yield payload;
+}
+
+async function* streamAnthropic(prompt: string, apiKey: string): AsyncGenerator<string> {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      stream: true,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Claude API error: ${response.status}`);
+  }
+
+  for await (const payload of readSSE(response)) {
+    const text = extractAnthropicDelta(payload);
+    if (text) yield text;
+  }
+}
+
+async function openGoogleStream(prompt: string, apiKey: string, model: string): Promise<Response> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: 8192 },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gemini API error: ${response.status}`);
+  }
+  return response;
+}
+
+async function* streamGoogle(prompt: string, apiKey: string): AsyncGenerator<string> {
+  // 모델 폴백은 스트림이 시작되기 전(연결 단계)에만 적용된다.
+  const response = await withModelFallback(GOOGLE_MODELS, (model) =>
+    openGoogleStream(prompt, apiKey, model)
+  );
+
+  let finishReason: string | undefined;
+  for await (const payload of readSSE(response)) {
+    const delta = extractGeminiDelta(payload);
+    if (delta.finishReason) finishReason = delta.finishReason;
+    if (delta.text) yield delta.text;
+  }
+
+  if (finishReason === 'MAX_TOKENS') {
+    throw new Error('생성된 코드가 너무 길어 잘렸습니다. 더 간단한 컴포넌트를 요청해주세요.');
+  }
+}
+
+function toErrorPayload(err: unknown): { error: string; status: number } {
+  const message = err instanceof Error ? err.message : 'Unknown error';
+  if (message.includes('503')) {
+    return { error: 'API 서버가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도해주세요.', status: 503 };
+  }
+  if (message.includes('429')) {
+    return { error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.', status: 429 };
+  }
+  return { error: message, status: 500 };
+}
+
 const server = Bun.serve({
   port: 3002,
   async fetch(req) {
@@ -154,6 +254,59 @@ const server = Bun.serve({
         },
         { headers: CORS_HEADERS }
       );
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/generate/stream') {
+      let body: { prompt?: string; apiKey?: string; provider?: Provider };
+      try {
+        body = await req.json();
+      } catch {
+        return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: CORS_HEADERS });
+      }
+      const { prompt, apiKey, provider = 'anthropic' } = body;
+      const resolvedKey = resolveApiKey(provider, apiKey);
+
+      if (!resolvedKey) {
+        return Response.json(
+          { error: `API key is required. Set ${provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'GOOGLE_API_KEY'} in .env or enter it manually.` },
+          { status: 400, headers: CORS_HEADERS }
+        );
+      }
+      if (!prompt) {
+        return Response.json({ error: 'Prompt is required' }, { status: 400, headers: CORS_HEADERS });
+      }
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (event: Record<string, unknown>) =>
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          try {
+            const deltas =
+              provider === 'google'
+                ? streamGoogle(prompt, resolvedKey)
+                : streamAnthropic(prompt, resolvedKey);
+            let text = '';
+            for await (const delta of deltas) {
+              text += delta;
+              send({ type: 'delta', text: delta });
+            }
+            send({ type: 'done', code: ensureRenderCall(stripCodeFences(text)) });
+          } catch (err) {
+            send({ type: 'error', ...toErrorPayload(err) });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          ...CORS_HEADERS,
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache',
+        },
+      });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/generate') {

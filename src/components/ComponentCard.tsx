@@ -9,12 +9,22 @@ interface ComponentCardProps {
   onRemove: (id: string) => void;
   onRegenerate: (prompt: string) => void;
   isLoading: boolean;
+  isStreaming?: boolean;
 }
 
 type Tab = 'preview' | 'code';
 
-export function ComponentCard({ component, onRemove, onRegenerate, isLoading }: ComponentCardProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('preview');
+export function ComponentCard({
+  component,
+  onRemove,
+  onRegenerate,
+  isLoading,
+  isStreaming = false,
+}: ComponentCardProps) {
+  // 스트리밍 중에는 코드 탭에서 시작하고, 완료되면 미리보기 탭으로 전환한다.
+  const [selectedTab, setActiveTab] = useState<Tab | null>(null);
+  const activeTab: Tab = isStreaming ? 'code' : (selectedTab ?? 'preview');
+
   const [previewKey, setPreviewKey] = useState(0);
   const createdAt = component.createdAt.toLocaleTimeString('ko-KR', {
     hour: '2-digit',
@@ -68,10 +78,10 @@ export function ComponentCard({ component, onRemove, onRegenerate, isLoading }: 
         </button>
       </div>
       <div className="card-content">
-        {activeTab === 'preview' ? (
+        {activeTab === 'preview' && !isStreaming ? (
           <LivePreview key={previewKey} code={component.code} />
         ) : (
-          <CodeView code={component.code} />
+          <CodeView code={component.code} isStreaming={isStreaming} />
         )}
       </div>
     </Window>
